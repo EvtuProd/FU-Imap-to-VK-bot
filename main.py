@@ -1,7 +1,6 @@
 import imaplib
 import email
 from email.header import decode_header
-import email.utils
 import base64
 
 def decode_base64(encoded_string):
@@ -40,9 +39,13 @@ def process_emails():
         sender_name = sender_name.replace(' ', '')
         sender_name = decode_base64(sender_name)
 
+        # Декодируем тему письма
+        subject_bytes, subject_encoding = decode_header(email_message['Subject'])[0]
+        subject_decoded = subject_bytes.decode(subject_encoding)
+
         # Теперь можно обработать письмо
         # Например, распечатать его заголовок
-        print('From:', sender_name, ':', sender_email, 'Subject:', email_message['Subject'])
+        print('From:', sender_name, ':', sender_email, 'Subject:', subject_decoded)
 
         # Печатаем текст письма, если он есть
         if email_message.is_multipart():
