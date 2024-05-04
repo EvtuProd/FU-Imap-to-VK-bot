@@ -2,19 +2,36 @@ import imaplib
 import email
 from email.header import decode_header
 import base64
+import vk_api
+from vk_api.longpoll import VkLongPoll, VkEventType
 
+
+# Функция для декодирования base64
 def decode_base64(encoded_string):
-    # Добавляем недостающие символы
     encoded_string += '=' * (4 - len(encoded_string) % 4)
-    # Декодируем из base64
     decoded_bytes = base64.b64decode(encoded_string)
-    # Возвращаем декодированный текст
     return decoded_bytes.decode('utf-8')
 
+# Функция для отправки сообщения в беседу ВКонтакте
+def send_vk_message(sender_name, sender_email, subject, body, vk):
+    # ID беседы, куда вы хотите отправить сообщение
+    peer_id = 2000000001
+
+    # Составляем текст сообщения
+    message_text = f"От: {sender_name}\nКому: {sender_email}\nТема: {subject}\nТело: {body}"
+
+    # Отправляем сообщение в беседу
+    vk.messages.send(
+        random_id='0',
+        peer_id=peer_id,
+        message=message_text
+    )
+
+# Функция для обработки писем
 def process_emails():
     # Подключаемся к серверу почты
     mail = imaplib.IMAP4_SSL('imap.yandex.ru')
-    mail.login('tuhachewscky@yandex.ru','nivlqlsojzdjepyv')
+    mail.login(mail_username, mail_password)
 
     # Выбираем ящик с почтой (inbox)
     mail.select('inbox')
@@ -43,10 +60,6 @@ def process_emails():
         subject_bytes, subject_encoding = decode_header(email_message['Subject'])[0]
         subject_decoded = subject_bytes.decode(subject_encoding)
 
-        # Теперь можно обработать письмо
-        # Например, распечатать его заголовок
-        print('From:', sender_name, ':', sender_email, 'Subject:', subject_decoded)
-
         # Печатаем текст письма, если он есть
         if email_message.is_multipart():
             for part in email_message.walk():
@@ -55,14 +68,24 @@ def process_emails():
 
                 # Ищем текстовую часть письма
                 if "text/plain" in content_type:
-                    # Декодируем и печатаем текст
+                    # Декодируем и получаем текст письма
                     body = part.get_payload(decode=True).decode()
-                    print("Message Body:", body)
 
+                    # Отправляем сообщение в беседу ВКонтакте
+                    send_vk_message(sender_name, sender_email, subject_decoded, body, vk)
 
     # Закрываем соединение
     mail.close()
     mail.logout()
+
+# Получаем токен доступа к ВКонтакте
+token = vk_token
+
+# Инициализируем сессию ВКонтакте с помощью токена
+vk_session = vk_api.VkApi(token=token)
+vk = vk_session.get_api()
+# Инициализируем Long Poll API
+longpoll = VkLongPoll(vk_session)
 
 # Бесконечный цикл для постоянного мониторинга почты
 while True:
