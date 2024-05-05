@@ -4,7 +4,7 @@ from email.header import decode_header
 import base64
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
-
+import json
 
 # Функция для декодирования base64
 def decode_base64(encoded_string):
@@ -18,7 +18,7 @@ def send_vk_message(sender_name, sender_email, subject, body, vk):
     peer_id = 2000000001
 
     # Составляем текст сообщения
-    message_text = f"От: {sender_name}\nКому: {sender_email}\nТема: {subject}\nТело: {body}"
+    message_text = f"От: {sender_name}:{sender_email}\nТема: {subject}\nТело: {body}"
 
     # Отправляем сообщение в беседу
     vk.messages.send(
@@ -28,7 +28,7 @@ def send_vk_message(sender_name, sender_email, subject, body, vk):
     )
 
 # Функция для обработки писем
-def process_emails():
+def process_emails(mail_username, mail_password, vk_token):
     # Подключаемся к серверу почты
     mail = imaplib.IMAP4_SSL('imap.yandex.ru')
     mail.login(mail_username, mail_password)
@@ -38,6 +38,10 @@ def process_emails():
 
     # Ищем непрочитанные сообщения
     result, data = mail.search(None, 'UNSEEN')
+
+    # Инициализируем сессию ВКонтакте с помощью токена
+    vk_session = vk_api.VkApi(token=vk_token)
+    vk = vk_session.get_api()
 
     # Обрабатываем найденные сообщения
     for num in data[0].split():
@@ -78,15 +82,14 @@ def process_emails():
     mail.close()
     mail.logout()
 
-# Получаем токен доступа к ВКонтакте
-token = vk_token
+# Загружаем логин, пароль и токен из файла JSON
+with open('config.json', 'r') as f:
+    config = json.load(f)
 
-# Инициализируем сессию ВКонтакте с помощью токена
-vk_session = vk_api.VkApi(token=token)
-vk = vk_session.get_api()
-# Инициализируем Long Poll API
-longpoll = VkLongPoll(vk_session)
+mail_username = config.get('mail_username', '')
+mail_password = config.get('mail_password', '')
+vk_token = config.get('vk_token', '')
 
 # Бесконечный цикл для постоянного мониторинга почты
 while True:
-    process_emails()
+    process_emails(mail_username, mail_password, vk_token)
