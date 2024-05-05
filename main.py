@@ -8,8 +8,30 @@ import os
 import time
 import base64
 
-# Настройка логгера
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Создание форматтера для логирования
+class ColoredFormatter(logging.Formatter):
+    COLORS = {
+        logging.ERROR: '\033[91m',  # красный
+        logging.WARNING: '\033[93m',  # желтый
+        logging.INFO: '\033[92m',  # зеленый
+    }
+    ENDCOLOR = '\033[0m'
+
+    def format(self, record):
+        log_color = self.COLORS.get(record.levelno, '\033[0m')  # по умолчанию цвет сбрасывается
+        log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
+        log_fmt = super().format(record)
+        return f"{log_time} - {log_color}{log_fmt}{self.ENDCOLOR}"
+
+# Создание и настройка обработчика для консольного вывода
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(ColoredFormatter())
+
+# Добавление обработчика к корневому логгеру
+logging.root.addHandler(console_handler)
+
+# Отключение цветного вывода для корневого логгера (так как он будет рассматриваться обработчиком)
+logging.root.setLevel(logging.NOTSET)
 
 # Функция для декодирования base64
 def decode_base64(encoded_string):
@@ -27,7 +49,7 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
 
     # Добавляем метку о наличии вложений, если они есть
     if attachments:
-        message_text += "\n\n**В сообщении есть вложения. Пожалуйста, зайдите в почтовый клиент, чтобы их просмотреть.**"
+        message_text += "\n\n\033[93m**В сообщении есть вложения. Пожалуйста, зайдите в почтовый клиент, чтобы их просмотреть.**\033[0m"
 
     # Отправляем сообщение в беседу ВКонтакте
     try:
@@ -36,7 +58,7 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
             peer_id=peer_id,
             message=message_text
         )
-        logging.info(f'Отправлено сообщение в беседу VK: {message_text}')
+        logging.WARNING(f'Отправлено сообщение в беседу VK: {message_text}')
     except Exception as e:
         logging.error(f'Ошибка при отправке сообщения в беседу VK: {e}')
 
@@ -113,25 +135,15 @@ def process_emails(email_username, email_password, vk_token):
                     send_vk_message(sender_name, sender_email, subject_decoded, body, attachments, vk)
         except Exception as e:
             logging.error(f'Ошибка при обработке писем: {e}')
-            # Отправляем уведомление об ошибке в ВКонтакте
-            try:
-                vk.messages.send(
-                    random_id='0',
-                    peer_id=peer_id,
-                    message=f"Произошла ошибка при обработке писем: {e}"
-                )
-            except Exception as e:
-                logging.error(f'Ошибка при отправке уведомления в ВКонтакте: {e}')
         finally:
             # Закрываем соединение
             try:
-                logging.info('Закрытие соединения с сервером почты...')
                 mail.logout()
             except Exception as e:
                 logging.error(f'Ошибка при закрытии соединения с сервером почты: {e}')
 
         # Добавляем паузу перед следующей проверкой почты, чтобы не нагружать сервер
-        time.sleep(5)  # Проверяем почту каждую минуту
+        time.sleep(60)  # Проверяем почту каждую минуту
 
 # Загружаем логин, пароль и токен из файла JSON
 with open('config.json', 'r') as f:
