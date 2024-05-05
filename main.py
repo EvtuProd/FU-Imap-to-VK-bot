@@ -2,12 +2,11 @@ import imaplib
 import email
 from email.header import decode_header
 import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
 import json
 import logging
 import os
 import time
-import base64  # Добавим импорт модуля base64
+import base64
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,12 +30,15 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
         message_text += "\n\n**В сообщении есть вложения. Пожалуйста, зайдите в почтовый клиент, чтобы их просмотреть.**"
 
     # Отправляем сообщение в беседу ВКонтакте
-    vk.messages.send(
-        random_id='0',
-        peer_id=peer_id,
-        message=message_text
-    )
-    logging.info(f'Отправлено сообщение в беседу VK: {message_text}')
+    try:
+        vk.messages.send(
+            random_id='0',
+            peer_id=peer_id,
+            message=message_text
+        )
+        logging.info(f'Отправлено сообщение в беседу VK: {message_text}')
+    except Exception as e:
+        logging.error(f'Ошибка при отправке сообщения в беседу VK: {e}')
 
 # Функция для обработки писем
 def process_emails(email_username, email_password, vk_token):
@@ -112,11 +114,21 @@ def process_emails(email_username, email_password, vk_token):
         except Exception as e:
             logging.error(f'Ошибка при обработке писем: {e}')
             # Отправляем уведомление об ошибке в ВКонтакте
-            send_vk_message('Система', 'system@example.com', 'Ошибка при обработке писем', f'Произошла ошибка при обработке писем: {e}', [], vk)
+            try:
+                vk.messages.send(
+                    random_id='0',
+                    peer_id=peer_id,
+                    message=f"Произошла ошибка при обработке писем: {e}"
+                )
+            except Exception as e:
+                logging.error(f'Ошибка при отправке уведомления в ВКонтакте: {e}')
         finally:
             # Закрываем соединение
-            logging.info('Закрытие соединения с сервером почты...')
-            mail.logout()
+            try:
+                logging.info('Закрытие соединения с сервером почты...')
+                mail.logout()
+            except Exception as e:
+                logging.error(f'Ошибка при закрытии соединения с сервером почты: {e}')
 
         # Добавляем паузу перед следующей проверкой почты, чтобы не нагружать сервер
         time.sleep(5)  # Проверяем почту каждую минуту
