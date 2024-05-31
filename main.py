@@ -23,15 +23,17 @@ class ColoredFormatter(logging.Formatter):
         log_fmt = super().format(record)
         return f"{log_time} - {log_color}{log_fmt}{self.ENDCOLOR}"
 
-# Creating and configuring a handler for console output
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(ColoredFormatter())
+# Creating and configuring a handler for file output
+log_filename = 'bot.log'
+file_handler = logging.FileHandler(log_filename)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
-# Adding the handler to the root logger
-logging.root.addHandler(console_handler)
+# Adding the file handler to the root logger
+logging.root.addHandler(file_handler)
 
-# Disabling colored output for the root logger (as it will be handled by the formatter)
+# Setting the level for the file handler
 logging.root.setLevel(logging.NOTSET)
+file_handler.setLevel(logging.INFO)
 
 # Function to decode base64
 def decode_base64(encoded_string):
@@ -58,7 +60,7 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
             peer_id=peer_id,
             message=message_text
         )
-        logging.WARNING(f'Message sent to VK conversation: {message_text}')
+        logging.warning(f'Message sent to VK conversation: {message_text}')
     except Exception as e:
         logging.error(f'Error sending message to VK conversation: {e}')
 
@@ -67,8 +69,10 @@ def process_emails(email_username, email_password, vk_token):
     while True:
         try:
             # Connecting to the mail server
+            logging.info('\n')
             logging.info('Connecting to the mail server...')
-            mail = imaplib.IMAP4_SSL('imap.yandex.ru')
+
+            mail = imaplib.IMAP4_SSL('imap.mail.ru')
             mail.login(email_username, email_password)
 
             # Selecting the mailbox (inbox)
@@ -143,7 +147,16 @@ def process_emails(email_username, email_password, vk_token):
                 logging.error(f'Error closing connection to mail server: {e}')
 
         # Adding a pause before the next email check to avoid overloading the server
-        time.sleep(60)  # Check email every minute
+        logging.info("Waiting for the next email check...")
+        time.sleep(10)  # Check email every minute
+
+# Function to clear log file daily
+def clear_log_file():
+    while True:
+        logging.info("Clearing log file...")
+        with open(log_filename, 'w'):
+            pass
+        time.sleep(24 * 60 * 60)  # Clear log file every 24 hours
 
 # Loading login, password, and token from JSON file
 with open('config.json', 'r') as f:
@@ -153,4 +166,9 @@ mail_username = config.get('email_credentials', {}).get('username', '')
 mail_password = config.get('email_credentials', {}).get('password', '')
 vk_token = config.get('vk_credentials', {}).get('token', '')
 
+# Start a separate thread for clearing log file
+import threading
+threading.Thread(target=clear_log_file, daemon=True).start()
+
+# Start processing emails
 process_emails(mail_username, mail_password, vk_token)
