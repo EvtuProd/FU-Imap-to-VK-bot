@@ -7,6 +7,8 @@ import logging
 import os
 import time
 import base64
+import threading
+from imapclient import imap_utf7
 
 # Creating a formatter for logging
 class ColoredFormatter(logging.Formatter):
@@ -42,12 +44,12 @@ def decode_base64(encoded_string):
     return decoded_bytes.decode('utf-8')
 
 # Function to send a message to a VK conversation
-def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
+def send_vk_message(sender_name, sender_email, subject, body, attachments, folder_name, vk):
     # Conversation ID where you want to send the message
     peer_id = 2000000001
 
     # Composing the message text
-    message_text = f"From: {sender_name}:{sender_email}\nSubject: {subject}\nBody: {body}"
+    message_text = f"Folder: {folder_name}\nFrom: {sender_name}:{sender_email}\nSubject: {subject}\nBody: {body}"
 
     # Adding a note about attachments if there are any
     if attachments:
@@ -56,7 +58,7 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
     # Sending the message to the VK conversation
     try:
         vk.messages.send(
-            random_id='0',
+            random_id=0,
             peer_id=peer_id,
             message=message_text
         )
@@ -66,6 +68,8 @@ def send_vk_message(sender_name, sender_email, subject, body, attachments, vk):
 
 # Function to process emails
 def process_emails(email_username, email_password, vk_token):
+    folders = ["inbox", "Джава", "Линукс", "МЛ", "СУБД", "ТеорияАлгоритмов", "ЭкономикаМММММ", "Эксель"]
+
     while True:
         try:
             # Connecting to the mail server
@@ -75,68 +79,91 @@ def process_emails(email_username, email_password, vk_token):
             mail = imaplib.IMAP4_SSL('imap.mail.ru')
             mail.login(email_username, email_password)
 
-            # Selecting the mailbox (inbox)
-            logging.info('Selecting the mailbox (inbox)...')
-            mail.select('inbox')
-
-            # Searching for unread messages
-            logging.info('Searching for unread messages...')
-            result, data = mail.search(None, 'UNSEEN')
-
             # Initializing VK session using the token
             vk_session = vk_api.VkApi(token=vk_token)
             vk = vk_session.get_api()
 
-            # Processing the found messages
-            for num in data[0].split():
-                # Getting message data
-                logging.info(f'Getting data for message {num}...')
-                result, data = mail.fetch(num, '(RFC822)')
-                raw_email = data[0][1]
+            for folder in folders:
+                try:
+                    # Encode folder name to UTF-7
+                    folder_utf7 = imap_utf7.encode(folder)
 
-                # Converting data to email object
-                email_message = email.message_from_bytes(raw_email)
+                    # Selecting the mailbox (folder)
+                    logging.info(f'Selecting the mailbox ({folder})...')
+                    status, data = mail.select(folder_utf7)
+                    if status != 'OK':
+                        raise Exception(f'Failed to select mailbox: {folder}')
 
-                sender_name, sender_email = email.utils.parseaddr(email_message['From'])
+                    # Searching for unread messages
+                    logging.info('Searching for unread messages...')
+                    result, data = mail.search(None, 'UNSEEN')
 
-                # Decoding sender name if encoded
-                sender_name = sender_name.replace('=?UTF-8?B?', '')
-                sender_name = sender_name.replace('==?=', '')
-                sender_name = sender_name.replace(' ', '')
-                sender_name = decode_base64(sender_name)
+                    # Processing the found messages
+                    for num in data[0].split():
+                        try:
+                            # Getting message data
+                            logging.info(f'Getting data for message {num}...')
+                            result, data = mail.fetch(num, '(RFC822)')
+                            raw_email = data[0][1]
 
-                # Decoding email subject
-                subject_bytes, subject_encoding = decode_header(email_message['Subject'])[0]
-                subject_decoded = subject_bytes.decode(subject_encoding)
+                            # Converting data to email object
+                            email_message = email.message_from_bytes(raw_email)
 
-                # Printing email text if available
-                if email_message.is_multipart():
-                    attachments = []
-                    for part in email_message.walk():
-                        content_disposition = str(part.get("Content-Disposition"))
-                        if "attachment" in content_disposition:
-                            filename = part.get_filename()
-                            if filename:
-                                # Decoding filename if encoded
-                                filename = decode_header(filename)[0][0]
-                                if isinstance(filename, bytes):
-                                    # If filename was encoded in bytes, decode it to UTF-8 string
-                                    filename = filename.decode('utf-8')
-                                # Saving attachment to disk
-                                folder_name = "attachments"
-                                if not os.path.isdir(folder_name):
-                                    os.mkdir(folder_name)
-                                filepath = os.path.join(folder_name, filename)
-                                with open(filepath, "wb") as f:
-                                    f.write(part.get_payload(decode=True))
-                                attachments.append(filepath)
+                            sender_name, sender_email = email.utils.parseaddr(email_message['From'])
 
-                        elif "text/plain" in part.get_content_type():
-                            # Decoding and getting email text
-                            body = part.get_payload(decode=True).decode()
+                            # Decoding sender name if encoded
+                            sender_name = sender_name.replace('=?UTF-8?B?', '').replace('==?=', '').replace(' ', '')
+                            try:
+                                sender_name = decode_base64(sender_name)
+                            except Exception as e:
+                                logging.error(f"Error decoding sender name: {e}")
+                                sender_name = "Unknown"
 
-                    # Sending message to VK conversation
-                    send_vk_message(sender_name, sender_email, subject_decoded, body, attachments, vk)
+                            # Decoding email subject
+                            subject_bytes, subject_encoding = decode_header(email_message['Subject'])[0]
+                            try:
+                                subject_decoded = subject_bytes.decode(subject_encoding)
+                            except Exception as e:
+                                logging.error(f"Error decoding subject: {e}")
+                                subject_decoded = "No subject"
+
+                            # Extracting email body and attachments
+                            body = ""
+                            attachments = []
+                            if email_message.is_multipart():
+                                for part in email_message.walk():
+                                    content_disposition = str(part.get("Content-Disposition"))
+                                    if "attachment" in content_disposition:
+                                        filename = part.get_filename()
+                                        if filename:
+                                            # Decoding filename if encoded
+                                            filename = decode_header(filename)[0][0]
+                                            if isinstance(filename, bytes):
+                                                filename = filename.decode('utf-8')
+                                            # Saving attachment to disk
+                                            folder_name = "attachments"
+                                            if not os.path.isdir(folder_name):
+                                                os.mkdir(folder_name)
+                                            filepath = os.path.join(folder_name, filename)
+                                            with open(filepath, "wb") as f:
+                                                f.write(part.get_payload(decode=True))
+                                            attachments.append(filepath)
+                                    elif part.get_content_type() == "text/plain":
+                                        try:
+                                            body = part.get_payload(decode=True).decode()
+                                        except Exception as e:
+                                            logging.error(f"Error decoding email body: {e}")
+                                            body = "Error decoding email body"
+                            else:
+                                body = email_message.get_payload(decode=True).decode()
+
+                            # Sending message to VK conversation
+                            send_vk_message(sender_name, sender_email, subject_decoded, body, attachments, folder, vk)
+
+                        except Exception as e:
+                            logging.error(f'Error processing message {num} in folder {folder}: {e}')
+                except Exception as e:
+                    logging.error(f'Error processing folder {folder}: {e}')
         except Exception as e:
             logging.error(f'Error processing emails: {e}')
         finally:
@@ -148,7 +175,7 @@ def process_emails(email_username, email_password, vk_token):
 
         # Adding a pause before the next email check to avoid overloading the server
         logging.info("Waiting for the next email check...")
-        time.sleep(10)  # Check email every minute
+        time.sleep(10)  # Check email every 10 seconds
 
 # Function to clear log file daily
 def clear_log_file():
@@ -167,7 +194,6 @@ mail_password = config.get('email_credentials', {}).get('password', '')
 vk_token = config.get('vk_credentials', {}).get('token', '')
 
 # Start a separate thread for clearing log file
-import threading
 threading.Thread(target=clear_log_file, daemon=True).start()
 
 # Start processing emails
